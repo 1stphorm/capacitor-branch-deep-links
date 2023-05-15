@@ -9,6 +9,8 @@ import {
   BranchShortUrlResponse,
   BranchShowShareSheetParams,
   BranchTrackingResponse,
+  BranchQRCodeParams,
+  BranchQRCodeResponse,
 } from './definitions';
 
 export class BranchDeepLinksWeb extends WebPlugin
@@ -72,11 +74,12 @@ export class BranchDeepLinksWeb extends WebPlugin
       new Error('BranchDeepLinks does not have web implementation'),
     );
   }
+
+  getBranchQRCode(_: BranchQRCodeParams): Promise<BranchQRCodeResponse> {
+    return Promise.reject(
+      new Error('BranchDeepLinks does not have web implementation'),
+    );
+  }
 }
 
-const BranchDeepLinks = new BranchDeepLinksWeb();
 
-export { BranchDeepLinks };
-
-import { registerWebPlugin } from '@capacitor/core';
-registerWebPlugin(BranchDeepLinks);

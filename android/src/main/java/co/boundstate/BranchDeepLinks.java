@@ -1,58 +1,89 @@
 package co.boundstate;
 
-import android.app.Activity;
+import android.content.Context;
 import android.content.Intent;
 import android.net.Uri;
-import androidx.annotation.Nullable;
+import android.os.UserManager;
+import android.util.Base64;
+import androidx.annotation.NonNull;
+import co.boundstate.capacitorbranchdeeplinks.BuildConfig;
 import com.getcapacitor.JSArray;
 import com.getcapacitor.JSObject;
-import com.getcapacitor.NativePlugin;
 import com.getcapacitor.Plugin;
 import com.getcapacitor.PluginCall;
 import com.getcapacitor.PluginMethod;
+import com.getcapacitor.annotation.CapacitorPlugin;
+import io.branch.indexing.BranchUniversalObject;
 import io.branch.referral.Branch;
 import io.branch.referral.BranchError;
 import io.branch.referral.BranchShareSheetBuilder;
 import io.branch.referral.BranchShortLinkBuilder;
+import io.branch.referral.QRCode.BranchQRCode;
 import io.branch.referral.SharingHelper;
 import io.branch.referral.util.BRANCH_STANDARD_EVENT;
 import io.branch.referral.util.BranchEvent;
+import io.branch.referral.util.ContentMetadata;
 import io.branch.referral.util.CurrencyType;
+import io.branch.referral.util.LinkProperties;
 import io.branch.referral.util.ShareSheetStyle;
+import java.io.IOException;
 import java.util.Iterator;
+import java.util.Objects;
 import org.json.JSONArray;
 import org.json.JSONException;
 import org.json.JSONObject;
 
-@NativePlugin
+@CapacitorPlugin(name = "BranchDeepLinks")
 public class BranchDeepLinks extends Plugin {
+
     private static final String EVENT_INIT = "init";
     private static final String EVENT_INIT_ERROR = "initError";
 
-    @Nullable
-    private Uri mData;
+    public static Branch getBranchInstance(@NonNull Context context) {
+        Branch.registerPlugin("Capacitor", BuildConfig.CAPACITOR_BRANCH_VERSION);
 
-    private Activity activity;
+        boolean isUnlocked = isUserUnlocked(context);
+
+        if (isUnlocked) {
+            // Branch object initialization
+            return Branch.getAutoInstance(context);
+        }
+
+        return null;
+    }
+
+    private static boolean isUserUnlocked(@NonNull Context context) {
+        if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.N) {
+            return ((UserManager) Objects.requireNonNull(context.getSystemService(Context.USER_SERVICE))).isUserUnlocked();
+        } else {
+            return true;
+        }
+    }
 
     @Override
     protected void handleOnNewIntent(Intent intent) {
         super.handleOnNewIntent(intent);
-        mData = intent.getData();
         getActivity().setIntent(intent);
-        // if activity is in foreground (or in backstack but partially visible) launching the same
-        // activity will skip onStart, handle this case with sessionBuilder()...reInit()
-        // will re-initialize only if ""branch_force_new_session=true"" intent extra is set
-        Branch.sessionBuilder(getActivity()).withCallback(callback).reInit();
+        Branch branch = getBranchInstance(getContext());
+        if (branch != null) {
+            // if activity is in foreground (or in backstack but partially visible) launching the same
+            // activity will skip onStart, handle this case with sessionBuilder()...reInit()
+            // will re-initialize only if ""branch_force_new_session=true"" intent extra is set
+            Branch.sessionBuilder(getActivity()).withCallback(callback).reInit();
+        }
     }
 
     @Override
     protected void handleOnStart() {
         super.handleOnStart();
-        Branch.sessionBuilder(getActivity()).withCallback(callback).withData(mData).init();
+        Uri data = getActivity().getIntent() != null ? getActivity().getIntent().getData() : null;
+        Branch branch = getBranchInstance(getContext());
+        if (branch != null) {
+            Branch.sessionBuilder(getActivity()).withCallback(callback).withData(data).init();
+        }
     }
 
-    private Branch.BranchReferralInitListener callback = new Branch.BranchReferralInitListener() {
-
+    private final Branch.BranchReferralInitListener callback = new Branch.BranchReferralInitListener() {
         @Override
         public void onInitFinished(JSONObject referringParams, BranchError error) {
             if (error == null) {
@@ -97,13 +128,12 @@ public class BranchDeepLinks extends Plugin {
 
         shortLinkBuilder.generateShortUrl(
             new Branch.BranchLinkCreateListener() {
-
                 @Override
                 public void onLinkCreate(String url, BranchError error) {
                     if (error == null) {
                         JSObject ret = new JSObject();
                         ret.put("url", url);
-                        call.success(ret);
+                        call.resolve(ret);
                     } else {
                         call.reject(error.getMessage());
                     }
@@ -123,7 +153,7 @@ public class BranchDeepLinks extends Plugin {
         BranchShareSheetBuilder shareLinkBuilder = getShareLinkBuilder(shortLinkBuilder, shareSheetStyle);
         shareLinkBuilder.shareLink();
 
-        call.success();
+        call.resolve();
     }
 
     @PluginMethod
@@ -136,7 +166,7 @@ public class BranchDeepLinks extends Plugin {
 
         JSObject ret = new JSObject();
         ret.put("branch_standard_events", events);
-        call.success(ret);
+        call.resolve(ret);
     }
 
     @PluginMethod
@@ -193,23 +223,31 @@ public class BranchDeepLinks extends Plugin {
                     String keyValue = (String) keys.next();
                     event.addCustomDataProperty(keyValue, customData.getString(keyValue));
                 }
+            } else if (key.equals("contentMetadata")) {
+                JSONArray contentMetadata = metaData.getJSONArray("contentMetadata");
+
+                for (int i = 0; i < contentMetadata.length(); i++) {
+                    JSONObject item = contentMetadata.getJSONObject(i);
+
+                    BranchUniversalObject universalObject = this.getContentItem(item);
+                    event.addContentItems(universalObject);
+                }
             }
         }
 
-        event.logEvent(activity);
+        event.logEvent(getActivity());
 
-        call.success();
+        call.resolve();
     }
 
     @PluginMethod
     public void disableTracking(PluginCall call) {
-        this.activity = getActivity();
         Boolean isEnabled = call.getBoolean("isEnabled", false);
         Branch.getInstance().disableTracking(isEnabled);
 
         JSObject ret = new JSObject();
         ret.put("is_enabled", isEnabled);
-        call.success(ret);
+        call.resolve(ret);
     }
 
     @PluginMethod
@@ -221,13 +259,12 @@ public class BranchDeepLinks extends Plugin {
             .setIdentity(
                 newIdentity,
                 new Branch.BranchReferralInitListener() {
-
                     @Override
                     public void onInitFinished(JSONObject referringParams, BranchError error) {
                         if (error == null) {
                             JSObject ret = new JSObject();
                             ret.put("referringParams", referringParams);
-                            call.success(ret);
+                            call.resolve(ret);
                         } else {
                             call.reject(error.getMessage());
                         }
@@ -242,19 +279,100 @@ public class BranchDeepLinks extends Plugin {
             .getInstance()
             .logout(
                 new Branch.LogoutStatusListener() {
-
                     @Override
                     public void onLogoutFinished(boolean loggedOut, BranchError error) {
                         if (error == null) {
                             JSObject ret = new JSObject();
                             ret.put("logged_out", loggedOut);
-                            call.success(ret);
+                            call.resolve(ret);
                         } else {
                             call.reject(error.getMessage());
                         }
                     }
                 }
             );
+    }
+
+    @PluginMethod
+    public void getBranchQRCode(final PluginCall call) throws JSONException {
+        JSObject analytics = call.getObject("analytics", new JSObject());
+        JSObject properties = call.getObject("properties", new JSObject());
+        LinkProperties linkProperties = new LinkProperties();
+        if (analytics.has("feature")) {
+            linkProperties.setFeature(analytics.getString("feature"));
+        }
+        if (analytics.has("alias")) {
+            linkProperties.setAlias(analytics.getString("alias"));
+        }
+        if (analytics.has("channel")) {
+            linkProperties.setChannel(analytics.getString("channel"));
+        }
+        if (analytics.has("stage")) {
+            linkProperties.setStage(analytics.getString("stage"));
+        }
+        if (analytics.has("campaign")) {
+            linkProperties.setCampaign(analytics.getString("campaign"));
+        }
+        if (analytics.has("duration")) {
+            linkProperties.setDuration(analytics.getInt("duration"));
+        }
+        if (analytics.has("tags")) {
+            JSONArray array = (JSONArray) analytics.get("tags");
+            for (int i = 0; i < array.length(); i++) {
+                linkProperties.addTag(array.get(i).toString());
+            }
+        }
+
+        Iterator<?> keys = properties.keys();
+        while (keys.hasNext()) {
+            String key = keys.next().toString();
+            linkProperties.addControlParameter(key, properties.getString(key));
+        }
+
+        BranchUniversalObject buo = new BranchUniversalObject();
+
+        BranchQRCode branchQRCode = new BranchQRCode();
+        JSObject qrCodeSettings = call.getObject("settings", new JSObject());
+
+        if (qrCodeSettings.has("codeColor")) {
+            branchQRCode.setCodeColor(qrCodeSettings.getString("codeColor"));
+        }
+        if (qrCodeSettings.has("backgroundColor")) {
+            branchQRCode.setBackgroundColor(qrCodeSettings.getString("backgroundColor"));
+        }
+        if (qrCodeSettings.has("centerLogo")) {
+            branchQRCode.setCenterLogo(qrCodeSettings.getString("centerLogo"));
+        }
+        if (qrCodeSettings.has("width")) {
+            branchQRCode.setWidth(qrCodeSettings.getInt("width"));
+        }
+        if (qrCodeSettings.has("margin")) {
+            branchQRCode.setMargin(qrCodeSettings.getInt("margin"));
+        }
+
+        try {
+            branchQRCode.getQRCodeAsData(
+                getActivity(),
+                buo,
+                linkProperties,
+                new BranchQRCode.BranchQRCodeDataHandler() {
+                    @Override
+                    public void onSuccess(byte[] qrCodeData) {
+                        String qrCodeString = Base64.encodeToString(qrCodeData, Base64.DEFAULT);
+                        JSObject ret = new JSObject();
+                        ret.put("qrCode", qrCodeString);
+                        call.resolve(ret);
+                    }
+
+                    @Override
+                    public void onFailure(Exception e) {
+                        call.reject(e.getMessage());
+                    }
+                }
+            );
+        } catch (IOException e) {
+            call.reject(e.getMessage());
+        }
     }
 
     private ShareSheetStyle getShareSheetStyle(String shareText) {
@@ -264,9 +382,9 @@ public class BranchDeepLinks extends Plugin {
         String more = "Show More";
         String shareWith = "Share With";
 
-        ShareSheetStyle shareSheetStyle = new ShareSheetStyle(activity, shareTitle, shareText)
-            .setCopyUrlStyle(activity.getResources().getDrawable(android.R.drawable.ic_menu_send), copyToClipboard, clipboardSuccess)
-            .setMoreOptionStyle(activity.getResources().getDrawable(android.R.drawable.ic_menu_search), more)
+        ShareSheetStyle shareSheetStyle = new ShareSheetStyle(getActivity(), shareTitle, shareText)
+            .setCopyUrlStyle(getActivity().getResources().getDrawable(android.R.drawable.ic_menu_send), copyToClipboard, clipboardSuccess)
+            .setMoreOptionStyle(getActivity().getResources().getDrawable(android.R.drawable.ic_menu_search), more)
             .addPreferredSharingOption(SharingHelper.SHARE_WITH.FACEBOOK)
             .addPreferredSharingOption(SharingHelper.SHARE_WITH.EMAIL)
             .addPreferredSharingOption(SharingHelper.SHARE_WITH.MESSAGE)
@@ -277,8 +395,50 @@ public class BranchDeepLinks extends Plugin {
         return shareSheetStyle;
     }
 
+    private BranchUniversalObject getContentItem(JSONObject item) throws JSONException {
+        BranchUniversalObject universalObject = new BranchUniversalObject();
+        ContentMetadata contentMetadata = new ContentMetadata();
+        Iterator<String> keys = item.keys();
+
+        while (keys.hasNext()) {
+            String key = keys.next();
+
+            switch (key) {
+                case "quantity":
+                    contentMetadata.setQuantity(Double.parseDouble(item.getString(key)));
+                    break;
+                case "price":
+                    contentMetadata.price = Double.parseDouble(item.getString(key));
+                    break;
+                case "currency":
+                    String currencyString = item.getString(key);
+                    CurrencyType currency = CurrencyType.getValue(currencyString);
+                    if (currency != null) {
+                        contentMetadata.currencyType = currency;
+                    }
+                    break;
+                case "productName":
+                    contentMetadata.setProductName(item.getString(key));
+                    break;
+                case "productBrand":
+                    contentMetadata.setProductBrand(item.getString(key));
+                    break;
+                case "sku":
+                    contentMetadata.setSku(item.getString(key));
+                    break;
+                default:
+                    contentMetadata.addCustomMetadata(key, item.getString(key));
+                    break;
+            }
+        }
+
+        universalObject.setContentMetadata(contentMetadata);
+
+        return universalObject;
+    }
+
     private BranchShortLinkBuilder getShortLinkBuilder(JSObject analytics, JSObject properties) throws JSONException {
-        BranchShortLinkBuilder shortLinkBuilder = new BranchShortLinkBuilder(activity);
+        BranchShortLinkBuilder shortLinkBuilder = new BranchShortLinkBuilder(getActivity());
 
         // Add analytics properties
         if (analytics.has("feature")) {
@@ -318,7 +478,7 @@ public class BranchDeepLinks extends Plugin {
     }
 
     private BranchShareSheetBuilder getShareLinkBuilder(BranchShortLinkBuilder shortLinkBuilder, ShareSheetStyle shareSheetStyle) {
-        BranchShareSheetBuilder shareLinkBuilder = new BranchShareSheetBuilder(activity, shortLinkBuilder);
+        BranchShareSheetBuilder shareLinkBuilder = new BranchShareSheetBuilder(getActivity(), shortLinkBuilder);
 
         shareLinkBuilder.setSubject(shareSheetStyle.getMessageTitle()).setMessage(shareSheetStyle.getMessageBody());
 
