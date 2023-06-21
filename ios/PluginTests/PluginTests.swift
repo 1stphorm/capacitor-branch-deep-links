@@ -1,6 +1,6 @@
 import XCTest
 import Capacitor
-import Branch
+import BranchSDK
 @testable import Plugin
 
 class PluginTests: XCTestCase {
@@ -20,7 +20,7 @@ class PluginTests: XCTestCase {
 
     func testGetStandardEvents() {
         let call = CAPPluginCall(callbackId: "getStandardEvents", success: { (result, _) in
-            let resultValue = result!.data["branch_standard_events"] as? [Any]
+            let resultValue = result!.data?["branch_standard_events"] as? [Any]
             let containsEvents = resultValue!.contains { element in
                 if (element as? BranchStandardEvent) != nil {
                     return true
@@ -44,7 +44,7 @@ class PluginTests: XCTestCase {
             "analytics": analytics,
             "properties": properties
         ], success: { (result, _) in
-            let resultValue = result!.data["url"] as? String
+            let resultValue = result!.data?["url"] as? String
             XCTAssertEqual(resultValue, "https://example.app.link/qeFky9V118")
         }, error: { (_) in
             XCTFail("Error shouldn't have been called")
@@ -59,7 +59,7 @@ class PluginTests: XCTestCase {
         let call = CAPPluginCall(callbackId: "disableTracking", options: [
             "isEnabled": isEnabled
         ], success: { (result, _) in
-            let resultValue = result!.data["is_enabled"] as? Bool
+            let resultValue = result!.data?["is_enabled"] as? Bool
             XCTAssertEqual(resultValue, true)
         }, error: { (_) in
             XCTFail("Error shouldn't have been called")
@@ -74,7 +74,7 @@ class PluginTests: XCTestCase {
         let call = CAPPluginCall(callbackId: "setIdentity", options: [
             "newIdentity": newIdentity
         ], success: { (result, _) in
-            let resultValue = result!.data["referringParams"] as? [AnyHashable : Any]
+            let resultValue = result!.data?["referringParams"] as? [AnyHashable : Any]
             XCTAssertEqual(resultValue!["+is_first_session"] as? Bool, false)
         }, error: { (_) in
             XCTFail("Error shouldn't have been called")
@@ -85,7 +85,7 @@ class PluginTests: XCTestCase {
 
     func testLogout() {
         let call = CAPPluginCall(callbackId: "logout", success: { (result, _) in
-            let resultValue = result!.data["logged_out"] as? Bool
+            let resultValue = result!.data?["logged_out"] as? Bool
             XCTAssertEqual(resultValue, true)
         }, error: { (_) in
             XCTFail("Error shouldn't have been called")

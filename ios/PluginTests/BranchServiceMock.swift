@@ -1,5 +1,5 @@
 import Foundation
-import Branch
+import BranchSDK
 @testable import Plugin
 
 class BranchServiceMock: BranchService {
