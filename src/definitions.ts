@@ -77,7 +77,7 @@ export interface BranchQRCodeResponse {
 
 export interface BranchInitEvent extends BranchReferringParamsResponse {}
 
-export type BranchATTAuthorizationStatus = 1 | 2 | 3 | 4;
+export type BranchATTAuthorizationStatus = 0 | 1 | 2 | 3;
 
 export interface BranchDeepLinksPlugin {
   addListener(
