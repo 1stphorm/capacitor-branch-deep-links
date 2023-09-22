@@ -77,6 +77,8 @@ export interface BranchQRCodeResponse {
 
 export interface BranchInitEvent extends BranchReferringParamsResponse {}
 
+export type BranchATTAuthorizationStatus = 1 | 2 | 3 | 4;
+
 export interface BranchDeepLinksPlugin {
   addListener(
     eventName: 'init',
@@ -95,6 +97,9 @@ export interface BranchDeepLinksPlugin {
   sendBranchEvent(options: {
     eventName: string;
     metaData: { [key: string]: any };
+  }): Promise<void>;
+  handleATTAuthorizationStatus(options: {
+    status: BranchATTAuthorizationStatus
   }): Promise<void>;
   disableTracking(options: {
     isEnabled: false;
